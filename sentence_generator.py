@@ -314,7 +314,7 @@ class SentenceGenerator:
         if self.duration_histogram:
             lines.append("")
             lines.append("Sentence duration histogram:")
-            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", "6-7s", "7-8s", ">=8s"]:
+            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", "6-7s", "7-8s", "8-9s", ">=9s"]:
                 if bucket in self.duration_histogram:
                     lines.append(f"  - {bucket}: {self.duration_histogram[bucket]}")
         if self.template_fail_counts:
@@ -836,8 +836,10 @@ Sentence:"""
             bucket = "6-7s"
         elif duration < 8:
             bucket = "7-8s"
+        elif duration < 9:
+            bucket = "8-9s"
         else:
-            bucket = ">=8s"
+            bucket = ">=9s"
         self.duration_histogram[bucket] += 1
     
     def generate_sentences(self, verbose: bool = True) -> List[str]:
@@ -999,7 +1001,7 @@ Sentence:"""
             histogram = stats_summary.get('duration_histogram', {})
             if histogram:
                 print("\nSentence duration histogram:")
-                for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", "6-7s", "7-8s", ">=8s"]:
+                for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", "6-7s", "7-8s", "8-9s", ">=9s"]:
                     if bucket in histogram:
                         print(f"  {bucket:<6}{histogram[bucket]:>6}")
             
