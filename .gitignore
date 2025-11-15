@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment variables / local configs
+.env
+.python-version
+
+# Generated output
+output/
+*.state.json
+*.stats.txt
+
+# Profiling / coverage
+.coverage
+coverage.xml
+.pytest_cache/
+
+# macOS / editor junk
+.DS_Store
+.idea/
+.vscode/
+*.swp

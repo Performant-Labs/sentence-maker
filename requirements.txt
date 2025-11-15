@@ -1,0 +1,8 @@
+spacy>=3.7.0,<3.8.0
+es-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.7.0/es_core_news_sm-3.7.0-py3-none-any.whl
+
+# Verb conjugation - using pyverbs (lightweight, no ML dependencies)
+# If this doesn't work, we'll implement basic conjugation rules
+
+# Note: Requires Python 3.8-3.12 (Python 3.13 not yet supported by blis/spaCy)
+# Download Spanish model with: python -m spacy download es_core_news_sm
