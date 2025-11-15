@@ -1,1 +1,1 @@
-/opt/homebrew/Caskroom/miniconda/base/envs/sentencemaker/bin/python3 sentencemaker.py -w words/words.txt -o output/sentences.txt --max-words 15 --llm-model gemma2:9b --profile
+/opt/homebrew/Caskroom/miniconda/base/envs/sentencemaker/bin/python3 sentencemaker.py -w words/words.txt -o output/sentences.txt --max-words 15 --max-sentences 100 --llm-model gemma2:9b --profile
