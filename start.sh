@@ -554,6 +554,10 @@ run_wizard() {
     echo -n "Maximum words per sentence [15]: "
     read -r max_words
     max_words=${max_words:-15}
+
+    echo -n "Maximum sentences to generate (0 = until done) [0]: "
+    read -r max_sentences
+    max_sentences=${max_sentences:-0}
     
     echo ""
     echo -e "${YELLOW}LLM Model Selection:${NC}"
@@ -639,7 +643,7 @@ run_wizard() {
     fi
     
     # Build command
-    cmd=("$PYTHON_BIN" "sentencemaker.py" "-w" "$wordlist" "-o" "$output" "--max-words" "$max_words" "--llm-model" "$selected_model")
+    cmd=("$PYTHON_BIN" "sentencemaker.py" "-w" "$wordlist" "-o" "$output" "--max-words" "$max_words" "--max-sentences" "$max_sentences" "--llm-model" "$selected_model")
     if [ -n "$profile_flag" ]; then
         cmd+=("$profile_flag")
     fi
@@ -655,6 +659,11 @@ run_wizard() {
     echo "  Word list: $wordlist"
     echo "  Output: $output"
     echo "  Max words/sentence: $max_words"
+    if [ "$max_sentences" -gt 0 ]; then
+        echo "  Max sentences: $max_sentences"
+    else
+        echo "  Max sentences: until all words covered"
+    fi
     echo "  LLM model: ${selected_model}"
     echo "  Profiling: $([ -n "$profile_flag" ] && echo 'Yes' || echo 'No')"
     echo "  Quiet mode: $([ -n "$quiet_flag" ] && echo 'Yes' || echo 'No')"

@@ -1,181 +1,77 @@
-# SentenceMaker Quick Start Guide
+# SentenceMaker Quick Start
 
-## One-Command Startup
+## 1. One-Command Startup
 
 ```bash
 ./start.sh
 ```
 
-This will:
-1. ✓ Kill any hung processes (gentle → forceful)
-2. ✓ Start ollama server (if not running)
-3. ✓ Activate conda environment
-4. ✓ Check available models
-5. ✓ Show run options menu
+The wizard will:
+1. Clean up any hung Python/Ollama processes.
+2. Start (or restart) the Ollama server.
+3. Activate the `sentencemaker` conda env.
+4. Confirm recommended models (gemma2:9b by default).
+5. Prompt for word list, output path, max words per sentence, **max sentences (0 = until all words)**, LLM model, profiling, and quiet mode.
 
-## Run Options
+If a checkpoint (`*.state.json`) exists, you’ll be offered a **Resume? [Y/n]** prompt before the wizard begins. Accepting replays the last command automatically; declining deletes the checkpoint and starts fresh.
 
-### 1. Quick Run (Fast, No Filtering)
-**Best for:** Testing, quick results
+## 2. Watch Progress
+
+Terminal 1 (wizard) shows live status and rejection counts. Terminal 2 (optional) can display the stats snapshot generated after every sentence:
+
 ```bash
-python sentencemaker.py
-```
-- Time: ~10-15 minutes
-- Output: ~1500 sentences
-- Coverage: 95%
-- Quality: Some nonsense
-
-### 2. Standard Run (Balanced)
-**Best for:** General use
-```bash
-python sentencemaker.py --max-words 15
-```
-- Time: ~12-18 minutes
-- Output: ~1200 sentences
-- Coverage: 94%
-- Quality: Some nonsense
-
-### 3. Minimized Output (Fewer Sentences)
-**Best for:** Compact output
-```bash
-python sentencemaker.py --max-words 18 --minimize
-```
-- Time: ~15-20 minutes
-- Output: ~800 sentences
-- Coverage: 92%
-- Quality: Some nonsense
-
-### 4. With LLM Filtering (Sensible Sentences Only)
-**Best for:** Quality over quantity
-```bash
-python sentencemaker.py --max-words 15 --llm-filter
-```
-- Time: ~15-20 minutes
-- Output: ~850 sentences (70% kept)
-- Coverage: 90%
-- Quality: All sensible ✓
-
-### 5. Full Featured (All Options) ⭐ RECOMMENDED
-**Best for:** Best results with detailed stats
-```bash
-python sentencemaker.py --max-words 18 --minimize --llm-filter --profile
-```
-- Time: ~20-25 minutes
-- Output: ~600 sentences (70% kept)
-- Coverage: 88%
-- Quality: All sensible ✓
-- Profiling: Detailed performance breakdown
-
-### 6. Custom Word List
-**Best for:** Your own vocabulary
-```bash
-python sentencemaker.py -w custom_words.txt -o output/custom.txt --max-words 12
+watch -n 2 cat output/sentences.txt.stats.txt
 ```
 
-### 7. Quiet Mode with LLM
-**Best for:** Background processing
-```bash
-python sentencemaker.py --max-words 15 --llm-filter -q
-```
+The snapshot lists sentences generated, coverage, rejection counts, template failures, and the sentence-duration histogram.
 
-## Command-Line Flags
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-w, --wordlist FILE` | Input word list | `words/words.txt` |
-| `-o, --output FILE` | Output file | `output/sentences.txt` |
-| `--max-words N` | Max words per sentence | 10 |
-| `--minimize` | Optimize for fewer sentences | Off |
-| `--llm-filter` | Filter with local LLM | Off |
-| `--llm-model MODEL` | Ollama model to use | `deepseek-r1:1.5b` |
-| `--profile` | Show performance breakdown | Off |
-| `-q, --quiet` | Suppress progress output | Off |
-
-## Watch Progress Live
-
-Open a second terminal:
+To inspect the output itself:
 
 ```bash
-# Watch sentences being generated
 tail -f output/sentences.txt
-
-# Count sentences
-watch -n 1 'wc -l output/sentences.txt'
-
-# See last 10 sentences
-watch -n 1 'tail -10 output/sentences.txt'
 ```
 
-## Troubleshooting
-
-### "Error: This program requires Python 3.8-3.12"
-```bash
-conda activate sentencemaker
-```
-
-### "Ollama not running"
-```bash
-ollama serve &
-```
-
-### "No models found"
-```bash
-ollama pull deepseek-r1:1.5b
-```
-
-### Hung process
-```bash
-./start.sh  # Will clean up automatically
-```
-
-## Performance Comparison
-
-| Configuration | Time | Sentences | Coverage | Quality |
-|---------------|------|-----------|----------|---------|
-| Quick | 10 min | 1500 | 95% | Mixed |
-| Standard | 15 min | 1200 | 94% | Mixed |
-| Minimized | 18 min | 800 | 92% | Mixed |
-| + LLM Filter | 20 min | 850 | 90% | ✓ Good |
-| Full Featured | 25 min | 600 | 88% | ✓ Good |
-
-## Recommended Models
-
-| Model | Speed | Quality | RAM | Command |
-|-------|-------|---------|-----|---------|
-| **gemma2:27b** ⭐ | ⚡⚡ | ⭐⭐⭐⭐⭐ | 15GB | `ollama pull gemma2:27b` (DEFAULT) |
-| mistral:7b-instruct | ⚡⚡⚡ | ⭐⭐⭐⭐ | 4GB | `ollama pull mistral:7b-instruct-v0.2-q4_0` |
-| deepseek-r1:8b | ⚡⚡⚡ | ⭐⭐⭐ | 5GB | `ollama pull deepseek-r1:8b` |
-
-## Example Workflow
+## 3. Run Manually (without wizard)
 
 ```bash
-# 1. Start everything
-./start.sh
-
-# 2. Choose option 5 (Full Featured)
-
-# 3. In another terminal, watch progress
-tail -f output/sentences.txt
-
-# 4. Wait for completion (~25 minutes)
-
-# 5. Review output
-head -20 output/sentences.txt
-wc -l output/sentences.txt
+python sentencemaker.py \
+  -w words/words.txt \
+  -o output/sentences.txt \
+  --max-words 15 \
+  --max-sentences 500 \
+  --llm-model gemma2:9b
 ```
 
-## Tips
+Key flags:
 
-- **First run?** Use option 2 (Standard) to test
-- **Want quality?** Use option 4 or 5 with LLM filtering
-- **In a hurry?** Use option 1 (Quick)
-- **Large word list?** Use `--minimize` to reduce output
-- **Debugging?** Add `--profile` to see performance breakdown
-- **Background job?** Add `-q` for quiet mode
+| Flag | Purpose | Default |
+|------|---------|---------|
+| `--max-words` | Max words per sentence | `15` |
+| `--max-sentences` | Stop after N sentences (`0` = use all words) | `0` |
+| `--llm-model` | Ollama model (`gemma2:9b`, `gemma2:27b`, `mistral:7b-…`) | `gemma2:9b` |
+| `--profile` | Print timing breakdown | off |
+| `-q` | Quiet mode (stats file still updates) | off |
 
-## Support
+## 4. Stopping and Resuming
 
-For issues or questions, check:
-- README.md - Full documentation
-- setup.sh - Environment setup
-- start.sh - This startup script
+- Press `Ctrl+C` to stop safely; the generator finishes the current sentence, saves the checkpoint, and exits.
+- Next run, `./start.sh` detects the checkpoint and offers to resume; choose `Y` to continue where you left off or `N` to delete the checkpoint and start over.
+
+## 5. Tips
+
+- **Fewer sentences?** Set `--max-sentences N`.
+- **Higher quality?** Use `--llm-model gemma2:27b` (requires more VRAM/time).
+- **Faster runs?** Try `mistral:7b-instruct-v0.2-q4_0`.
+- **Monitor semantics?** Check `output/sentences.txt.stats.txt` for heuristic vs. validator rejections and top failing templates.
+- **Trouble with Ollama?** Run `./start.sh --reset` to restart the server automatically.
+
+## 6. Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| “Error: This program requires Python 3.8-3.12” | `conda activate sentencemaker` |
+| “Cannot connect to Ollama” | `ollama serve &` (or let `./start.sh` restart it) |
+| Slow generation (>5s/sentence) | `./start.sh --reset`, close other apps, or switch to a smaller model |
+| Stats file missing | Wait until the run starts; the `.stats.txt` file is created after the first sentence |
+
+You’re ready—run `./start.sh`, choose your settings, and watch the stats file for live feedback.***

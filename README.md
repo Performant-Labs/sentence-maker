@@ -4,7 +4,7 @@ A Python application that generates semantically coherent, grammatically correct
 
 ## Features
 
-- **LLM-Powered Generation**: Uses local Ollama LLM (gemma2:27b) to generate semantically coherent sentences
+- **LLM-Powered Generation**: Uses local Ollama LLM (gemma2:9b by default, gemma2:27b for highest quality) to generate semantically coherent sentences
 - **Smart Word Classification**: Uses spaCy to automatically classify Spanish words by part of speech
 - **Thematic Variety**: 12 seed topics (family, work, daily routine, etc.) guide sentence generation for natural contexts
 - **Template-Guided Structure**: 54 grammatical templates ensure diverse sentence structures (questions, commands, subjunctive, etc.)
@@ -22,7 +22,7 @@ A Python application that generates semantically coherent, grammatically correct
 
 **Requirements**: 
 - Python 3.8-3.12 (Python 3.13 not yet supported due to spaCy/blis compatibility)
-- **Ollama** with gemma2:27b model (for LLM generation)
+- **Ollama** with at least gemma2:9b downloaded (gemma2:27b recommended for maximum quality)
 
 ### Step 1: Install Ollama
 
@@ -32,7 +32,9 @@ Install Ollama and download the recommended model:
 # Install Ollama (macOS/Linux)
 curl https://ollama.ai/install.sh | sh
 
-# Download recommended model (15GB)
+# Download recommended models
+ollama pull gemma2:9b
+# Optional high-quality model
 ollama pull gemma2:27b
 
 # Start Ollama server
@@ -163,28 +165,28 @@ This will:
 Run directly with command-line arguments:
 
 ```bash
-# Basic usage with LLM
-python sentencemaker.py --llm-filter
+# Basic usage (default gemma2:9b, unlimited sentences)
+python sentencemaker.py
 
-# Custom configuration
-python sentencemaker.py -w words/words.txt -o output/sentences.txt --max-words 15 --llm-filter
+# Custom configuration (custom word/output files and sentence cap)
+python sentencemaker.py -w words/words.txt -o output/sentences.txt --max-words 15 --max-sentences 500
 
-# Use different LLM model
-python sentencemaker.py --llm-filter --llm-model mistral:7b-instruct-v0.2-q4_0
+# Use a different Ollama model
+python sentencemaker.py --llm-model gemma2:27b
 ```
 
-**Note**: `--llm-filter` is required for generation. The program uses LLM to create sentences.
+**Note**: The LLM is always used for generation and validation—no extra flags required.
 
 ### Command-Line Arguments
 
 ```bash
 # Required
---llm-filter              # Enable LLM generation (required)
-
-# Optional
 -w, --wordlist PATH       # Word list file (default: words/words.txt)
 -o, --output PATH         # Output file (default: output/sentences.txt)
+
+# Optional
 --max-words N             # Max words per sentence (default: 15)
+--max-sentences N         # Stop after N sentences (default: 0 = cover all words)
 --llm-provider PROVIDER   # LLM provider: ollama (default), openai, anthropic
 --llm-model MODEL         # LLM model (default: gemma2:9b)
 -q, --quiet               # Suppress progress output
@@ -195,16 +197,16 @@ python sentencemaker.py --llm-filter --llm-model mistral:7b-instruct-v0.2-q4_0
 
 ```bash
 # Standard usage
-python sentencemaker.py --llm-filter
+python sentencemaker.py
 
 # Custom configuration
-python sentencemaker.py -w my_words.txt -o my_output.txt --max-words 12 --llm-filter
+python sentencemaker.py -w my_words.txt -o my_output.txt --max-words 12 --max-sentences 400
 
 # Use faster model
-python sentencemaker.py --llm-filter --llm-model mistral:7b-instruct-v0.2-q4_0
+python sentencemaker.py --llm-model mistral:7b-instruct-v0.2-q4_0
 
 # Quiet mode with profiling
-python sentencemaker.py --llm-filter -q --profile
+python sentencemaker.py -q --profile
 ```
 
 ### Live Monitoring

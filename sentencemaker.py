@@ -261,7 +261,7 @@ def run_generator(args, stage_times):
         print(f"\nOutput will be saved to: {args.output}")
         print("(File will be updated after each sentence)")
         print("(Using LLM for generation and validation)")
-    generator = SentenceGenerator(classifier, max_words=args.max_words, output_file=args.output, llm_validator=llm_validator, generation_model=args.llm_model)
+    generator = SentenceGenerator(classifier, max_words=args.max_words, output_file=args.output, llm_validator=llm_validator, generation_model=args.llm_model, max_sentences=args.max_sentences)
     
     resume_state = None
     checkpoint = generator.load_checkpoint()
@@ -289,8 +289,7 @@ def run_generator(args, stage_times):
     # Generate sentences (with LLM validation if enabled)
     stage_start = time.time()
     sentences = generator.generate_sentences(verbose=not args.quiet)
-    if not generator.unused_words:
-        generator.clear_checkpoint()
+    generator.clear_checkpoint()
     stage_times['generate_sentences'] = time.time() - stage_start
     
     # Get statistics
@@ -328,6 +327,12 @@ Examples:
         type=int,
         default=15,
         help='Maximum words per sentence (default: 15)'
+    )
+    parser.add_argument(
+        '--max-sentences',
+        type=int,
+        default=0,
+        help='Maximum sentences to generate (default: 0, meaning all words)'
     )
     parser.add_argument(
         '-q', '--quiet',
@@ -406,6 +411,9 @@ Examples:
     save_sentences(sentences, args.output)
     stage_times['save_output'] = time.time() - stage_start
     
+    # Final cleanup of checkpoint (normal completion)
+    generator.clear_checkpoint()
+    
     # Save unused words if any
     if generator.unused_words:
         # Determine unused words filename based on output filename
@@ -458,8 +466,19 @@ Examples:
             print("\nTop template failures:")
             for template_id, count in sorted(template_failures.items(), key=lambda x: x[1], reverse=True)[:5]:
                 print(f"  - {template_id}: {count}")
+        template_successes = stats.get('template_successes', {})
+        if template_successes:
+            print("\nTop template selections:")
+            for template_id, count in sorted(template_successes.items(), key=lambda x: x[1], reverse=True)[:5]:
+                print(f"  - {template_id}: {count}")
         print(f"\nLast sentence time: {stats.get('last_sentence_duration', 0.0):.2f}s")
         print(f"Average sentence time: {stats.get('avg_sentence_duration', 0.0):.2f}s")
+        histogram = stats.get('duration_histogram', {})
+        if histogram:
+            print("Sentence duration histogram:")
+            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", ">=6s"]:
+                if bucket in histogram:
+                    print(f"  {bucket}: {histogram[bucket]}")
         print("\n" + "-" * 60)
         print("TIMING BREAKDOWN")
         print("-" * 60)
@@ -500,8 +519,19 @@ Examples:
             print("Top template failures:")
             for template_id, count in sorted(template_failures.items(), key=lambda x: x[1], reverse=True)[:5]:
                 print(f"  - {template_id}: {count}")
+        template_successes = stats.get('template_successes', {})
+        if template_successes:
+            print("Top template selections:")
+            for template_id, count in sorted(template_successes.items(), key=lambda x: x[1], reverse=True)[:5]:
+                print(f"  - {template_id}: {count}")
         print(f"Last sentence time: {stats.get('last_sentence_duration', 0.0):.2f}s")
         print(f"Average sentence time: {stats.get('avg_sentence_duration', 0.0):.2f}s")
+        histogram = stats.get('duration_histogram', {})
+        if histogram:
+            print("Sentence duration histogram:")
+            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", ">=6s"]:
+                if bucket in histogram:
+                    print(f"  {bucket}: {histogram[bucket]}")
 
 
 if __name__ == "__main__":

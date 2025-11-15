@@ -62,7 +62,7 @@ class SentenceGenerator:
         "shopping": ["compra", "comprar", "tienda", "mercado", "precio", "dinero", "pagar"]
     }
     
-    def __init__(self, classifier: WordClassifier, max_words: int = 10, output_file: str = None, llm_validator=None, generation_model: str = None):
+    def __init__(self, classifier: WordClassifier, max_words: int = 10, output_file: str = None, llm_validator=None, generation_model: str = None, max_sentences: int = 0):
         """
         Initialize the sentence generator.
         
@@ -92,9 +92,13 @@ class SentenceGenerator:
         self.rejection_counts = defaultdict(int)
         self.stats_file = None
         self.template_fail_counts = defaultdict(int)
+        self.template_success_counts = defaultdict(int)
         self.last_sentence_duration = 0.0
         self.total_sentence_duration = 0.0
         self.successful_sentences = 0
+        self.duration_histogram = defaultdict(int)
+        self.start_time = time.time()
+        self.max_sentences = max_sentences
         
     def initialize_word_tracking(self, all_words: List[str], resume_state: Optional[dict] = None):
         """
@@ -127,7 +131,6 @@ class SentenceGenerator:
         self.recent_sentence_starts = []
         self._mood_counts = {'Ind': 0, 'Imp': 0, 'Sub': 0, 'Question': 0}
         self._recent_template_patterns = []
-        self.rejection_counts = defaultdict(int)
         self.rejection_counts = defaultdict(int)
         
         if self.output_file:
@@ -172,9 +175,12 @@ class SentenceGenerator:
         self._recent_template_patterns = state.get('template_patterns', [])
         self.rejection_counts = defaultdict(int, state.get('rejection_counts', {}))
         self.template_fail_counts = defaultdict(int, state.get('template_failures', {}))
+        self.template_success_counts = defaultdict(int, state.get('template_successes', {}))
         self.last_sentence_duration = state.get('last_sentence_duration', 0.0)
         self.total_sentence_duration = state.get('total_sentence_duration', 0.0)
         self.successful_sentences = state.get('successful_sentences', len(self.sentences))
+        self.duration_histogram = defaultdict(int, state.get('duration_histogram', {}))
+        self.max_sentences = state.get('max_sentences', self.max_sentences)
         
         if self.output_file:
             # Ensure checkpoint output exists and reflects current sentences
@@ -251,10 +257,14 @@ class SentenceGenerator:
             'template_patterns': self._recent_template_patterns[-40:],
             'rejection_counts': dict(self.rejection_counts),
             'template_failures': dict(self.template_fail_counts),
+            'template_successes': dict(self.template_success_counts),
             'last_sentence_duration': self.last_sentence_duration,
             'total_sentence_duration': self.total_sentence_duration,
             'successful_sentences': self.successful_sentences,
-            'timestamp': time.time()
+            'duration_histogram': dict(self.duration_histogram),
+            'timestamp': time.time(),
+            'start_time': self.start_time,
+            'max_sentences': self.max_sentences
         }
         
         try:
@@ -266,40 +276,84 @@ class SentenceGenerator:
     def _get_stats_snapshot(self) -> str:
         """Return a human-readable snapshot of current stats."""
         stats = self.get_statistics()
+        total_rejections = self.rejection_counts.get('heuristic', 0) + self.rejection_counts.get('validator', 0)
         lines = [
             "SentenceMaker Stats Snapshot",
             "=============================",
-            f"Sentences generated : {len(self.sentences)}",
-            f"Words used          : {stats['used_words']}",
-            f"Words remaining     : {stats['unused_words']}",
-            f"Coverage            : {stats['coverage_percent']:.2f}%",
-            f"Last sentence time  : {stats['last_sentence_duration']:.2f}s",
-            f"Avg sentence time   : {stats['avg_sentence_duration']:.2f}s",
+            self._format_three_columns(
+                ("Sentences generated", str(len(self.sentences))),
+                ("Total rejections", str(total_rejections)),
+                ("Heuristic rejects", str(self.rejection_counts.get('heuristic', 0)))
+            ),
+            self._format_three_columns(
+                ("Words used", str(stats['used_words'])),
+                ("Words remaining", str(stats['unused_words'])),
+                ("Validator rejects", str(self.rejection_counts.get('validator', 0)))
+            ),
+            self._format_three_columns(
+                ("Coverage", f"{stats['coverage_percent']:.2f}%"),
+                ("Avg sentence time", f"{stats['avg_sentence_duration']:.2f}s"),
+                ("Last sentence time", f"{stats['last_sentence_duration']:.2f}s")
+            ),
+            self._format_three_columns(
+                ("Max sentences", str(self.max_sentences) if self.max_sentences else "All words"),
+                ("Elapsed time", self._format_elapsed_time(time.time() - self.start_time)),
+                ("", "")
+            ),
+            f"LLM model: {self.generation_model or 'N/A'}",
             ""
         ]
         rejections = stats.get('rejections', {})
-        if rejections:
-            lines.append(f"Total rejections    : {rejections.get('heuristic', 0) + rejections.get('validator', 0)}")
-            lines.append(f"  - Heuristic       : {rejections.get('heuristic', 0)}")
-            lines.append(f"  - Validator       : {rejections.get('validator', 0)}")
-            detail_keys = sorted(k for k in rejections if k.startswith('heuristic_'))
-            if detail_keys:
-                lines.append("")
-                lines.append("Heuristic breakdown:")
-                for key in detail_keys:
-                    label = key.replace('heuristic_', '').replace('_', ' ')
-                    lines.append(f"  - {label}: {rejections[key]}")
-        else:
-            lines.append("Total rejections    : 0")
+        detail_keys = sorted(k for k in rejections if k.startswith('heuristic_'))
+        if detail_keys:
+            lines.append("Heuristic rejections (breakdown):")
+            for key in detail_keys:
+                label = key.replace('heuristic_', '').replace('_', ' ')
+                lines.append(f"  {label:<30}{rejections[key]:>6}")
+            lines.append("")
+        if self.duration_histogram:
+            lines.append("")
+            lines.append("Sentence duration histogram:")
+            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", "6-7s", "7-8s", ">=8s"]:
+                if bucket in self.duration_histogram:
+                    lines.append(f"  - {bucket}: {self.duration_histogram[bucket]}")
         if self.template_fail_counts:
             lines.append("")
             lines.append("Top template failures:")
             sorted_templates = sorted(self.template_fail_counts.items(), key=lambda x: x[1], reverse=True)[:5]
             for template_id, count in sorted_templates:
                 lines.append(f"  - {template_id}: {count}")
+        if self.template_success_counts:
+            lines.append("")
+            lines.append("Top template selections:")
+            sorted_success = sorted(self.template_success_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            for template_id, count in sorted_success:
+                lines.append(f"  - {template_id}: {count}")
         lines.append("")
         lines.append("Updated: " + time.strftime("%Y-%m-%d %H:%M:%S"))
         return "\n".join(lines)
+
+    def _format_two_columns(self, left_label: str, left_value: str, right_label: Optional[str] = None, right_value: Optional[str] = None) -> str:
+        left = f"{left_label:<28}{left_value:>12}"
+        if right_label and right_value is not None:
+            right = f"{right_label:<28}{right_value:>12}"
+            return f"{left}    {right}"
+        return left
+
+    def _format_three_columns(self, first: tuple[str, str], second: tuple[str, str], third: Optional[tuple[str, str]] = None) -> str:
+        col1 = f"{first[0]:<20}{first[1]:>12}"
+        col2 = f"{second[0]:<20}{second[1]:>12}"
+        if third:
+            col3 = f"{third[0]:<20}{third[1]:>12}"
+            return f"{col1}    {col2}    {col3}"
+        return f"{col1}    {col2}"
+
+    def _format_elapsed_time(self, seconds: float) -> str:
+        mins, secs = divmod(int(seconds), 60)
+        hours, mins = divmod(mins, 60)
+        if hours > 0:
+            return f"{hours:02d}:{mins:02d}:{secs:02d}"
+        return f"{mins:02d}:{secs:02d}"
 
     def _write_stats_snapshot(self):
         """Persist current stats snapshot for inspection."""
@@ -764,6 +818,28 @@ Sentence:"""
         self.rejection_counts[key] += 1
         self._write_stats_snapshot()
     
+    def _record_duration_bucket(self, duration: float):
+        """Bucket sentence generation durations for distribution stats."""
+        if duration < 1:
+            bucket = "<1s"
+        elif duration < 2:
+            bucket = "1-2s"
+        elif duration < 3:
+            bucket = "2-3s"
+        elif duration < 4:
+            bucket = "3-4s"
+        elif duration < 5:
+            bucket = "4-5s"
+        elif duration < 6:
+            bucket = "5-6s"
+        elif duration < 7:
+            bucket = "6-7s"
+        elif duration < 8:
+            bucket = "7-8s"
+        else:
+            bucket = ">=8s"
+        self.duration_histogram[bucket] += 1
+    
     def generate_sentences(self, verbose: bool = True) -> List[str]:
         """
         Generate sentences to cover all words.
@@ -812,8 +888,15 @@ Sentence:"""
         batch_start_time = time.time()
         last_batch_count = 0
         
+        sentence_timer = None
         while self.unused_words and iteration < max_iterations:
+            if self.max_sentences and len(sentences) >= self.max_sentences:
+                if verbose:
+                    print(f"\nReached max sentences limit ({self.max_sentences}). Stopping.")
+                break
             iteration += 1
+            if sentence_timer is None:
+                sentence_timer = time.time()
             
             # Show progress immediately
             if verbose and iteration == 1:
@@ -842,15 +925,18 @@ Sentence:"""
                 sys.stdout.write(f'  Generating sentence {len(sentences) + 1}... {elapsed:.1f}s elapsed (calling LLM...) | {self._format_rejection_progress()}')
                 sys.stdout.flush()
             
-            attempt_start = time.time()
             result = self._generate_with_llm(template)
             
             if result:
                 sentence, _ = result
-                self.last_sentence_duration = time.time() - attempt_start
+                self.last_sentence_duration = time.time() - sentence_timer
+                sentence_timer = None
+                self._record_duration_bucket(self.last_sentence_duration)
                 self.total_sentence_duration += self.last_sentence_duration
                 self.successful_sentences += 1
                 sentences.append(sentence)
+                template_id = getattr(template, 'identifier', template.name if hasattr(template, 'name') else str(template))
+                self.template_success_counts[template_id] += 1
                 failed_attempts = 0  # Reset counter on success
                 
                 # Save immediately after each sentence
@@ -893,19 +979,29 @@ Sentence:"""
         
         if verbose:
             print(f"\nGeneration complete!")
-            print(f"  Total sentences: {len(sentences)}")
-            print(f"  Words covered: {len(self.used_words)}")
-            print(f"  Words remaining: {len(self.unused_words)}")
-            rejection_summary = self._format_rejection_progress()
-            print(f"  {rejection_summary}")
+            stats_summary = self.get_statistics()
+            total_rejections = self.rejection_counts.get('heuristic', 0) + self.rejection_counts.get('validator', 0)
+            print(self._format_two_columns("Total sentences", str(len(sentences)), "Total rejections", str(total_rejections)))
+            print(self._format_two_columns("Words covered", str(len(self.used_words)), "Heuristic rejects", str(self.rejection_counts.get('heuristic', 0))))
+            print(self._format_two_columns("Words remaining", str(len(self.unused_words)), "Validator rejects", str(self.rejection_counts.get('validator', 0))))
+            print(self._format_two_columns("Coverage", f"{stats_summary['coverage_percent']:.2f}%", "Last sentence time", f"{stats_summary['last_sentence_duration']:.2f}s"))
+            print(self._format_two_columns("Avg sentence time", f"{stats_summary['avg_sentence_duration']:.2f}s", "Max sentences", str(self.max_sentences) if self.max_sentences else "All words"))
             if self.template_fail_counts:
                 print("\nTop template failures:")
                 sorted_templates = sorted(self.template_fail_counts.items(), key=lambda x: x[1], reverse=True)[:5]
                 for template_id, count in sorted_templates:
-                    print(f"  - {template_id}: {count}")
-            stats_summary = self.get_statistics()
-            print(f"  Last sentence time: {stats_summary['last_sentence_duration']:.2f}s")
-            print(f"  Avg sentence time : {stats_summary['avg_sentence_duration']:.2f}s")
+                    print(f"  {template_id:<40}{count:>6}")
+            if self.template_success_counts:
+                print("\nTop template selections:")
+                sorted_success = sorted(self.template_success_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+                for template_id, count in sorted_success:
+                    print(f"  {template_id:<40}{count:>6}")
+            histogram = stats_summary.get('duration_histogram', {})
+            if histogram:
+                print("\nSentence duration histogram:")
+                for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", "6-7s", "7-8s", ">=8s"]:
+                    if bucket in histogram:
+                        print(f"  {bucket:<6}{histogram[bucket]:>6}")
             
             if self.unused_words:
                 print(f"\nUnused words by POS:")
@@ -919,7 +1015,7 @@ Sentence:"""
                     print(f"  {pos}: {len(words)} words")
                     if len(words) <= 5:
                         print(f"    {', '.join(words)}")
-        
+        self._write_stats_snapshot()
         return sentences
     
     def _select_best_template(self, templates: List[Template]) -> Optional[Template]:
@@ -1048,7 +1144,8 @@ Sentence:"""
             'rejections': dict(self.rejection_counts),
             'template_failures': dict(self.template_fail_counts),
             'last_sentence_duration': self.last_sentence_duration,
-            'avg_sentence_duration': (self.total_sentence_duration / self.successful_sentences) if self.successful_sentences else 0.0
+            'avg_sentence_duration': (self.total_sentence_duration / self.successful_sentences) if self.successful_sentences else 0.0,
+            'duration_histogram': dict(self.duration_histogram)
         }
         
         # Add mood statistics if available
