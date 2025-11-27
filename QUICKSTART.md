@@ -1,16 +1,18 @@
 # SentenceMaker Quick Start
 
-## 1. One-Command Startup
+## 1. One-Command Startup (Recommended)
 
 ```bash
 ./start.sh
 ```
 
+**Note**: The wizard is in `start.sh`, not `sentencemaker.py`. Running `python sentencemaker.py` directly will skip the wizard and use default values.
+
 The wizard will:
 1. Clean up any hung Python/Ollama processes.
 2. Start (or restart) the Ollama server.
 3. Activate the `sentencemaker` conda env.
-4. Confirm recommended models (gemma2:9b by default).
+4. Confirm recommended models (qwen2.5:14b by default).
 5. Prompt for word list, output path, max words per sentence, **max sentences (0 = until all words)**, LLM model, profiling, and quiet mode.
 
 If a checkpoint (`*.state.json`) exists, you’ll be offered a **Resume? [Y/n]** prompt before the wizard begins. Accepting replays the last command automatically; declining deletes the checkpoint and starts fresh.
@@ -33,13 +35,22 @@ tail -f output/sentences.txt
 
 ## 3. Run Manually (without wizard)
 
+First, activate the environment and ensure Ollama is running:
+
+```bash
+conda activate sentencemaker
+ollama serve &  # Start Ollama in background (if not already running)
+```
+
+Then run the generator:
+
 ```bash
 python sentencemaker.py \
   -w words/words.txt \
   -o output/sentences.txt \
   --max-words 15 \
   --max-sentences 500 \
-  --llm-model gemma2:9b
+  --llm-model qwen2.5:14b
 ```
 
 Key flags:
@@ -48,7 +59,7 @@ Key flags:
 |------|---------|---------|
 | `--max-words` | Max words per sentence | `15` |
 | `--max-sentences` | Stop after N sentences (`0` = use all words) | `0` |
-| `--llm-model` | Ollama model (`gemma2:9b`, `gemma2:27b`, `mistral:7b-…`) | `gemma2:9b` |
+| `--llm-model` | Ollama model (`qwen2.5:14b`, `qwen2.5:32b`, `gemma2:9b`, …) | `qwen2.5:14b` |
 | `--profile` | Print timing breakdown | off |
 | `-q` | Quiet mode (stats file still updates) | off |
 

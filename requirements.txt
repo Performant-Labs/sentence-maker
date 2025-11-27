@@ -1,5 +1,7 @@
 spacy>=3.7.0,<3.8.0
 es-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.7.0/es_core_news_sm-3.7.0-py3-none-any.whl
+pyspellchecker>=0.8.1
+sentence-transformers>=2.6.1
 
 # Verb conjugation - using pyverbs (lightweight, no ML dependencies)
 # If this doesn't work, we'll implement basic conjugation rules

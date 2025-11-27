@@ -26,6 +26,22 @@ if sys.version_info < (3, 8) or sys.version_info >= (3, 13):
 from word_classifier import WordClassifier
 from sentence_generator import SentenceGenerator
 
+DURATION_BUCKETS = SentenceGenerator.DURATION_BUCKETS
+LEGACY_DURATION_BUCKET = ">=9s"
+RUN_COUNTER_FILE = Path(".sentencemaker_run_counter")
+
+
+def format_duration(seconds: float) -> str:
+    """Return duration formatted as HHh MMm SS.SSSs or milliseconds."""
+    if seconds is None:
+        return "00h 00m 00.000s"
+    if seconds < 1:
+        return f"{seconds * 1000:.1f} ms"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds - hours * 3600 - minutes * 60
+    return f"{hours:02d}h {minutes:02d}m {secs:06.3f}s"
+
 
 def load_word_list(filepath: str) -> list[str]:
     """
@@ -47,6 +63,22 @@ def load_word_list(filepath: str) -> list[str]:
     except Exception as e:
         print(f"Error reading file: {e}")
         sys.exit(1)
+
+
+def load_next_run_id() -> int:
+    """Return a monotonically increasing run identifier and persist it."""
+    try:
+        current = 0
+        if RUN_COUNTER_FILE.exists():
+            content = RUN_COUNTER_FILE.read_text(encoding="utf-8").strip()
+            if content:
+                current = int(content)
+        next_id = current + 1
+        RUN_COUNTER_FILE.write_text(str(next_id), encoding="utf-8")
+        return next_id
+    except Exception:
+        # Fall back to timestamp-based ID if the counter file is unavailable.
+        return int(time.time())
 
 
 def save_sentences(sentences: list[str], output_file: str):
@@ -168,7 +200,7 @@ def save_unused_words(unused_words: set[str], classifier, output_file: str):
         sys.exit(1)
 
 
-def run_generator(args, stage_times):
+def run_generator(args, stage_times, run_id: int):
     """
     Core generator logic (can be profiled).
     
@@ -188,7 +220,7 @@ def run_generator(args, stage_times):
     stage_times['load_wordlist'] = time.time() - stage_start
     
     if not args.quiet:
-        print(f"Loaded {len(words)} words ({stage_times['load_wordlist']:.3f}s)")
+        print(f"Loaded {len(words)} words ({format_duration(stage_times['load_wordlist'])})")
     
     if len(words) == 0:
         print("Error: Word list is empty")
@@ -207,7 +239,7 @@ def run_generator(args, stage_times):
     
     stage_times['init_classifier'] = time.time() - stage_start
     if not args.quiet:
-        print(f"Model loaded ({stage_times['init_classifier']:.3f}s)")
+        print(f"Model loaded ({format_duration(stage_times['init_classifier'])})")
     
     # Classify words
     stage_start = time.time()
@@ -215,53 +247,61 @@ def run_generator(args, stage_times):
     stage_times['classify_words'] = time.time() - stage_start
     
     if not args.quiet:
-        print(f"Classification time: {stage_times['classify_words']:.3f}s")
+        print(f"Classification time: {format_duration(stage_times['classify_words'])}")
     
-    # Initialize LLM (required for generation)
+    # Initialize LLM client for generation (validation can be none)
     llm_validator = None
-    if True:  # LLM is always required
-        from llm_validator import LLMValidator
-        
-        # Show provider info
+    from llm_validator import LLMValidator
+    gen_provider = args.gen_llm_provider or args.llm_provider
+    gen_model = args.gen_llm_model or args.llm_model
+
+    if gen_provider != 'none':
         if not args.quiet:
             provider_info = {
-                'ollama': f'LOCAL (FREE) - {args.llm_model}',
-                'openai': f'OpenAI API (COSTS $) - {args.llm_model}',
-                'anthropic': f'Anthropic API (COSTS $) - {args.llm_model}'
+                'ollama': f'LOCAL (FREE) - {gen_model}',
+                'openai': f'OpenAI API (COSTS $) - {gen_model}',
+                'anthropic': f'Anthropic API (COSTS $) - {gen_model}',
+                'none': 'No validation (heuristics only)'
             }
-            print(f"\nInitializing LLM validator: {provider_info[args.llm_provider]}")
-            if args.llm_provider != 'ollama':
+            print(f"\nInitializing LLM client: {provider_info.get(gen_provider, gen_provider)}")
+            if gen_provider != 'ollama':
                 print(f"  ⚠️  WARNING: Using API provider - this will incur costs!")
                 print(f"  Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable")
-        
         stage_start = time.time()
         try:
-            # Use same model for validation to ensure quality
-            validator_model = args.llm_model
-            if not args.quiet and args.llm_model in ["gemma2:27b", "gemma2:9b"]:
-                print(f"  Using {validator_model} for both generation and validation (best quality)")
-            
-            llm_validator = LLMValidator(model=validator_model, provider=args.llm_provider)
+            llm_validator = LLMValidator(model=gen_model, provider=gen_provider)
             stage_times['init_llm'] = time.time() - stage_start
             
             if not args.quiet:
-                print(f"LLM validator ready ({stage_times['init_llm']:.3f}s)")
+                print(f"LLM client ready ({format_duration(stage_times['init_llm'])})")
         except (ConnectionError, TimeoutError, ValueError) as e:
             print(f"\n❌ Error: {e}")
-            print("\nCannot continue without LLM.")
-            print("Please start ollama: ollama serve")
             sys.exit(1)
         except Exception as e:
-            print(f"\n❌ Unexpected error initializing LLM validator: {e}")
+            print(f"\n❌ Unexpected error initializing LLM client: {e}")
             sys.exit(1)
     
     # Initialize generator with output file for incremental saving
     stage_start = time.time()
     if not args.quiet:
         print(f"\nOutput will be saved to: {args.output}")
-        print("(File will be updated after each sentence)")
-        print("(Using LLM for generation and validation)")
-    generator = SentenceGenerator(classifier, max_words=args.max_words, output_file=args.output, llm_validator=llm_validator, generation_model=args.llm_model, max_sentences=args.max_sentences)
+        if args.llm_provider == 'none':
+            print("(Using LLM for generation; validation: none (heuristics only))")
+        else:
+            print("(Using LLM for generation and validation)")
+    generator = SentenceGenerator(
+        classifier,
+        max_words=args.max_words,
+        output_file=args.output,
+        llm_validator=llm_validator,
+        generation_model=args.gen_llm_model or args.validator_llm_model or args.llm_model,
+        generation_provider=args.gen_llm_provider or args.llm_provider,
+        min_words=args.min_words,
+        skip_llm_validation=args.llm_provider == 'none',
+        max_sentences=args.max_sentences,
+        enable_spellcheck=args.spellcheck,
+        run_id=run_id
+    )
     
     resume_state = None
     checkpoint = generator.load_checkpoint()
@@ -289,7 +329,8 @@ def run_generator(args, stage_times):
     # Generate sentences (with LLM validation if enabled)
     stage_start = time.time()
     sentences = generator.generate_sentences(verbose=not args.quiet)
-    generator.clear_checkpoint()
+    if not generator.last_run_aborted:
+        generator.clear_checkpoint()
     stage_times['generate_sentences'] = time.time() - stage_start
     
     # Get statistics
@@ -325,14 +366,25 @@ Examples:
     parser.add_argument(
         '--max-words',
         type=int,
-        default=15,
-        help='Maximum words per sentence (default: 15)'
+        default=12,
+        help='Maximum words per sentence (default: 12)'
+    )
+    parser.add_argument(
+        '--min-words',
+        type=int,
+        default=6,
+        help='Minimum words per sentence after fixes (default: 6)'
     )
     parser.add_argument(
         '--max-sentences',
         type=int,
         default=0,
         help='Maximum sentences to generate (default: 0, meaning all words)'
+    )
+    parser.add_argument(
+        '--spellcheck',
+        action='store_true',
+        help='Enable dictionary-based spell checking (default: disabled)'
     )
     parser.add_argument(
         '-q', '--quiet',
@@ -347,14 +399,30 @@ Examples:
     # LLM is now always required for generation - no flag needed
     parser.add_argument(
         '--llm-provider',
-        choices=['ollama', 'openai', 'anthropic'],
-        default='ollama',
-        help='LLM provider: ollama (local, FREE), openai (API, costs $), anthropic (API, costs $) (default: ollama)'
+        choices=['ollama', 'openai', 'anthropic', 'none'],
+        default='none',
+        help='LLM provider for validation (default: none = no LLM validation); generation uses --gen-llm-provider'
     )
     parser.add_argument(
         '--llm-model',
         default='gemma2:9b',
-        help='Model name - ollama: gemma2:9b (default, best balance), gemma2:27b (highest quality), mistral:7b-instruct-v0.2-q4_0 (faster) | openai: gpt-4o-mini, gpt-4 | anthropic: claude-3-haiku, claude-3-sonnet'
+        help='Model used for validation (defaults to gemma2:9b); generation uses --gen-llm-model'
+    )
+    parser.add_argument(
+        '--validator-llm-model',
+        default=None,
+        help='LLM model used for validation (defaults to --llm-model when not set)'
+    )
+    parser.add_argument(
+        '--gen-llm-provider',
+        choices=['ollama', 'openai', 'anthropic'],
+        default=None,
+        help='LLM provider for generation (defaults to validation provider when not set)'
+    )
+    parser.add_argument(
+        '--gen-llm-model',
+        default=None,
+        help='Model used for generation (defaults to validation model when not set)'
     )
     resume_group = parser.add_mutually_exclusive_group()
     resume_group.add_argument(
@@ -382,13 +450,25 @@ Examples:
         print(f"  Word list: {args.wordlist}")
         print(f"  Output: {args.output}")
         print(f"  Max words/sentence: {args.max_words}")
+        if args.max_sentences and args.max_sentences > 0:
+            print(f"  Max sentences: {args.max_sentences}")
+        else:
+            print(f"  Max sentences: until all words covered")
         print(f"  NLP Model: es_core_news_sm (spaCy)")
         provider_label = {
             'ollama': 'LOCAL (FREE)',
             'openai': 'OpenAI API (COSTS $)',
-            'anthropic': 'Anthropic API (COSTS $)'
+            'anthropic': 'Anthropic API (COSTS $)',
+            'none': 'No validation (heuristics only)'
         }
-        print(f"  LLM Validation: {provider_label[args.llm_provider]} - {args.llm_model}")
+        validator_model = args.validator_llm_model or args.llm_model
+        gen_provider = args.gen_llm_provider or args.llm_provider
+        gen_model = args.gen_llm_model or validator_model
+        print(f"  LLM Generation: {provider_label.get(gen_provider, gen_provider)} - {gen_model}")
+        print(f"  LLM Validation: {provider_label.get(args.llm_provider, args.llm_provider)} - {validator_model}")
+        print(f"  Spell check: {'enabled' if args.spellcheck else 'disabled'}")
+        print(f"  Profiling: {'on' if args.profile else 'off'}")
+        print(f"  Quiet mode: {'on' if args.quiet else 'off'}")
         print("=" * 60)
     
     # Start timing
@@ -397,14 +477,15 @@ Examples:
     
     # Run with or without profiling
     profiling_data = None
+    run_id = load_next_run_id()
     if args.profile:
         profiler = cProfile.Profile()
         profiler.enable()
-        sentences, stats, generator, classifier = run_generator(args, stage_times)
+        sentences, stats, generator, classifier = run_generator(args, stage_times, run_id)
         profiler.disable()
         profiling_data = analyze_profiling_data(profiler)
     else:
-        sentences, stats, generator, classifier = run_generator(args, stage_times)
+        sentences, stats, generator, classifier = run_generator(args, stage_times, run_id)
     
     # Save sentences
     stage_start = time.time()
@@ -412,7 +493,8 @@ Examples:
     stage_times['save_output'] = time.time() - stage_start
     
     # Final cleanup of checkpoint (normal completion)
-    generator.clear_checkpoint()
+    if not generator.last_run_aborted:
+        generator.clear_checkpoint()
     
     # Save unused words if any
     if generator.unused_words:
@@ -471,42 +553,53 @@ Examples:
             print("\nTop template selections:")
             for template_id, count in sorted(template_successes.items(), key=lambda x: x[1], reverse=True)[:5]:
                 print(f"  - {template_id}: {count}")
-        print(f"\nLast sentence time: {stats.get('last_sentence_duration', 0.0):.2f}s")
-        print(f"Average sentence time: {stats.get('avg_sentence_duration', 0.0):.2f}s")
+        if args.spellcheck:
+            spell_unknowns = stats.get('spellcheck_unknowns', [])
+            if spell_unknowns:
+                print("\nTop spell-check rejects:")
+                for word, count in spell_unknowns[:8]:
+                    print(f"  {word:<25}{count:>5}")
+            spell_total = stats.get('spellcheck_duration', 0.0)
+            spell_avg = (spell_total / len(sentences)) if sentences else 0.0
+            print(f"\nSpell check time:       {format_duration(spell_total)} (avg {format_duration(spell_avg)})")
+        else:
+            print("\nSpell check: disabled")
+        print(f"\nLast sentence time: {format_duration(stats.get('last_sentence_duration', 0.0))}")
+        print(f"Average sentence time: {format_duration(stats.get('avg_sentence_duration', 0.0))}")
         histogram = stats.get('duration_histogram', {})
         if histogram:
             print("Sentence duration histogram:")
-            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", ">=6s"]:
+            for bucket in DURATION_BUCKETS:
                 if bucket in histogram:
                     print(f"  {bucket}: {histogram[bucket]}")
         print("\n" + "-" * 60)
         print("TIMING BREAKDOWN")
         print("-" * 60)
-        print(f"Load word list:          {stage_times['load_wordlist']:.3f}s")
-        print(f"Initialize model:        {stage_times['init_classifier']:.3f}s")
-        print(f"Classify words:          {stage_times['classify_words']:.3f}s")
-        print(f"Initialize generator:    {stage_times['init_generator']:.3f}s")
-        print(f"Generate sentences:      {stage_times['generate_sentences']:.3f}s")
-        print(f"Save output:             {stage_times['save_output']:.3f}s")
+        print(f"Load word list:          {format_duration(stage_times['load_wordlist'])}")
+        print(f"Initialize model:        {format_duration(stage_times['init_classifier'])}")
+        print(f"Classify words:          {format_duration(stage_times['classify_words'])}")
+        print(f"Initialize generator:    {format_duration(stage_times['init_generator'])}")
+        print(f"Generate sentences:      {format_duration(stage_times['generate_sentences'])}")
+        print(f"Save output:             {format_duration(stage_times['save_output'])}")
         print("-" * 60)
-        print(f"TOTAL TIME:              {elapsed_time:.3f}s")
+        print(f"TOTAL TIME:              {format_duration(elapsed_time)}")
         
         # Add profiling breakdown if enabled
         if profiling_data:
             print("\n" + "-" * 60)
             print("PERFORMANCE BREAKDOWN (Python vs Compiled)")
             print("-" * 60)
-            print(f"Python code time:        {profiling_data['python_time']:.3f}s ({profiling_data['python_percent']:.1f}%)")
-            print(f"Compiled libraries:      {profiling_data['compiled_time']:.3f}s ({profiling_data['compiled_percent']:.1f}%)")
-            print(f"  ├─ spaCy (NLP):        {profiling_data['spacy_time']:.3f}s")
-            print(f"  └─ mlconjug3 (verbs):  {profiling_data['mlconjug_time']:.3f}s")
+            print(f"Python code time:        {format_duration(profiling_data['python_time'])} ({profiling_data['python_percent']:.1f}%)")
+            print(f"Compiled libraries:      {format_duration(profiling_data['compiled_time'])} ({profiling_data['compiled_percent']:.1f}%)")
+            print(f"  ├─ spaCy (NLP):        {format_duration(profiling_data['spacy_time'])}")
+            print(f"  └─ mlconjug3 (verbs):  {format_duration(profiling_data['mlconjug_time'])}")
             print("-" * 60)
-            print(f"Profiled time total:     {profiling_data['total_time']:.3f}s")
+            print(f"Profiled time total:     {format_duration(profiling_data['total_time'])}")
             print("\nNote: Compiled libraries (C/Cython) are 10-100x faster than Python")
         
         print("=" * 60)
     else:
-        print(f"Generated {len(sentences)} sentences in {elapsed_time:.2f}s")
+        print(f"Generated {len(sentences)} sentences in {format_duration(elapsed_time)}")
         print(f"Coverage: {stats['coverage_percent']:.2f}% ({stats['used_words']}/{stats['total_words']} words)")
         rejections = stats.get('rejections', {})
         if rejections:
@@ -524,14 +617,28 @@ Examples:
             print("Top template selections:")
             for template_id, count in sorted(template_successes.items(), key=lambda x: x[1], reverse=True)[:5]:
                 print(f"  - {template_id}: {count}")
-        print(f"Last sentence time: {stats.get('last_sentence_duration', 0.0):.2f}s")
-        print(f"Average sentence time: {stats.get('avg_sentence_duration', 0.0):.2f}s")
+        if args.spellcheck:
+            spell_unknowns = stats.get('spellcheck_unknowns', [])
+            if spell_unknowns:
+                print("Top spell-check rejects:")
+                for word, count in spell_unknowns[:8]:
+                    print(f"  {word:<25}{count:>5}")
+            spell_total = stats.get('spellcheck_duration', 0.0)
+            spell_avg = (spell_total / len(sentences)) if sentences else 0.0
+            print(f"Spell check time: {format_duration(spell_total)} (avg {format_duration(spell_avg)})")
+        else:
+            print("Spell check: disabled")
+        print(f"Last sentence time: {format_duration(stats.get('last_sentence_duration', 0.0))}")
+        print(f"Average sentence time: {format_duration(stats.get('avg_sentence_duration', 0.0))}")
         histogram = stats.get('duration_histogram', {})
         if histogram:
             print("Sentence duration histogram:")
-            for bucket in ["<1s", "1-2s", "2-3s", "3-4s", "4-5s", "5-6s", ">=6s"]:
+            for bucket in DURATION_BUCKETS:
                 if bucket in histogram:
                     print(f"  {bucket}: {histogram[bucket]}")
+            legacy_count = histogram.get(LEGACY_DURATION_BUCKET)
+            if legacy_count:
+                print(f"  {LEGACY_DURATION_BUCKET} (legacy): {legacy_count}")
 
 
 if __name__ == "__main__":

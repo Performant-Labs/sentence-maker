@@ -77,6 +77,18 @@ class TemplateLibrary:
                 glue_words=["el", "la"],
                 pattern="glue0 slot0 slot1 glue1 slot2 slot3"
             ),
+            Template(
+                name="NOUN_CON_NOUN",
+                slots=["NOUN", "NOUN"],
+                glue_words=["el", "la", "con", "el", "la"],
+                pattern="glue0 slot0 glue2 glue3 slot1"
+            ),
+            Template(
+                name="NOUN_Y_NOUN",
+                slots=["NOUN", "NOUN"],
+                glue_words=["el", "la", "y", "el", "la"],
+                pattern="glue0 slot0 glue2 glue3 slot1"
+            ),
             
             # With adverbs
             Template(
@@ -137,6 +149,36 @@ class TemplateLibrary:
                 glue_words=[],
                 pattern="slot0 slot1"
             ),
+            Template(
+                name="PRON_VERB",
+                slots=["PRON", "VERB"],
+                glue_words=[],
+                pattern="slot0 slot1"
+            ),
+            Template(
+                name="PROPN_VERB",
+                slots=["PROPN", "VERB"],
+                glue_words=[],
+                pattern="slot0 slot1"
+            ),
+            Template(
+                name="PROPN_ES_ADJ",
+                slots=["PROPN", "ADJ"],
+                glue_words=["es"],
+                pattern="slot0 glue0 slot1"
+            ),
+            Template(
+                name="ADV_VERB",
+                slots=["ADV", "VERB"],
+                glue_words=[],
+                pattern="slot0 slot1"
+            ),
+            Template(
+                name="VERB_ADV_SHORT",
+                slots=["VERB", "ADV"],
+                glue_words=[],
+                pattern="slot0 slot1"
+            ),
             
             # Single word patterns (for very difficult words)
             Template(
@@ -157,6 +199,12 @@ class TemplateLibrary:
                 glue_words=["es", "muy"],
                 pattern="glue0 glue1 slot0"
             ),
+            Template(
+                name="SINGLE_ADV",
+                slots=["ADV"],
+                glue_words=[],
+                pattern="slot0"
+            ),
             
             # Patterns with determiners
             Template(
@@ -170,6 +218,18 @@ class TemplateLibrary:
                 slots=["DET", "NOUN", "VERB", "NOUN"],
                 glue_words=["el", "la"],
                 pattern="slot0 slot1 slot2 glue0 slot3"
+            ),
+            Template(
+                name="PROPN_VERB_NOUN",
+                slots=["PROPN", "VERB", "NOUN"],
+                glue_words=[],
+                pattern="slot0 slot1 slot2"
+            ),
+            Template(
+                name="PRON_VERB_NOUN",
+                slots=["PRON", "VERB", "NOUN"],
+                glue_words=[],
+                pattern="slot0 slot1 slot2"
             ),
             
             # Question patterns (interrogatives)

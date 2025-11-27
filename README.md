@@ -52,7 +52,7 @@ For other operating systems, visit: https://ollama.ai
 Run the automated setup script:
 
 ```bash
-./setup.sh
+./install.sh
 ```
 
 This will:
@@ -404,7 +404,7 @@ SentenceMaker/
 ├── word_classifier.py       # Word classification with spaCy
 ├── sentence_templates.py    # 54 Spanish grammar templates
 ├── requirements.txt         # Python dependencies
-├── setup.sh                 # Automated environment setup
+├── install.sh               # Automated environment setup
 ├── words/                   # Input folder for word lists
 │   └── words.txt           # Your Spanish word list (place here)
 ├── output/                  # Output folder for generated sentences
